@@ -1,5 +1,5 @@
 // Wayfinder - Travel Itinerary Manager
-// Integrated with Python FastAPI Backend, SQLite Database & User Authentication (US8 & US9)
+// Integrated with Python FastAPI Backend, SQLite Database, Authentication (US8 & US9), Activities (US10-15) & Budget (US16)
 
 const API_BASE_URL = 'http://localhost:8000';
 const TOKEN_KEY = 'wayfinder_jwt_token';
@@ -8,6 +8,7 @@ const EMAIL_KEY = 'wayfinder_user_email';
 let itineraries = [];
 let pendingDeleteId = null;
 let currentAuthMode = 'login'; // 'login' or 'register'
+let activeTripId = null;
 
 document.addEventListener('DOMContentLoaded', () => {
   setupEventListeners();
@@ -103,7 +104,6 @@ async function handleAuthSubmit(e) {
 
   try {
     if (currentAuthMode === 'register') {
-      // US8: Register
       const regRes = await fetch(`${API_BASE_URL}/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -115,7 +115,6 @@ async function handleAuthSubmit(e) {
         throw new Error(data.detail || 'Registration failed');
       }
 
-      // Auto-login after successful registration
       const loginRes = await fetch(`${API_BASE_URL}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -125,7 +124,6 @@ async function handleAuthSubmit(e) {
       localStorage.setItem(TOKEN_KEY, loginData.access_token);
       localStorage.setItem(EMAIL_KEY, email);
     } else {
-      // US9: Login
       const res = await fetch(`${API_BASE_URL}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -168,7 +166,6 @@ async function loadData() {
     });
 
     if (response.status === 401) {
-      console.warn('Session expired or unauthorized');
       handleLogout();
       openAuthModal('login');
       return;
@@ -213,6 +210,14 @@ function setupEventListeners() {
   document.getElementById('auth-form').addEventListener('submit', handleAuthSubmit);
   document.getElementById('auth-toggle-btn').addEventListener('click', () => {
     openAuthModal(currentAuthMode === 'login' ? 'register' : 'login');
+  });
+
+  // Activities Event Listeners
+  document.getElementById('activity-form').addEventListener('submit', handleSaveActivity);
+  document.getElementById('filter-activity-type').addEventListener('change', (e) => {
+    if (activeTripId) {
+      loadTripActivities(activeTripId, e.target.value);
+    }
   });
 }
 
@@ -279,13 +284,18 @@ function renderDashboard() {
             ` : ''}
           </div>
 
-          <div class="pt-3 border-t border-gray-100 flex items-center justify-end space-x-2">
-            <button onclick="openEditModalById('${trip.id}')" class="px-2.5 py-1 text-xs font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded transition">
-              Edit
+          <div class="pt-3 border-t border-gray-100 flex items-center justify-between">
+            <button onclick="openActivitiesModal('${trip.id}')" class="px-2.5 py-1 text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded border border-indigo-200 transition">
+              Activities & Budget
             </button>
-            <button onclick="openDeleteModal('${trip.id}')" class="px-2.5 py-1 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded transition">
-              Delete
-            </button>
+            <div class="flex items-center space-x-1.5">
+              <button onclick="openEditModalById('${trip.id}')" class="px-2 py-1 text-xs font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded transition">
+                Edit
+              </button>
+              <button onclick="openDeleteModal('${trip.id}')" class="px-2 py-1 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded transition">
+                Delete
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -296,7 +306,7 @@ function renderDashboard() {
 }
 
 // ----------------------------------------------------
-// CRUD ACTIONS (CONNECTED TO API WITH JWT)
+// CRUD ACTIONS (TRIPS)
 // ----------------------------------------------------
 function openCreateModal() {
   document.getElementById('modal-title').innerText = 'New Trip';
@@ -344,14 +354,12 @@ async function handleSaveItinerary(e) {
 
   try {
     if (id) {
-      // UPDATE VIA API
       await fetch(`${API_BASE_URL}/trips/${id}`, {
         method: 'PUT',
         headers: getAuthHeaders(),
         body: JSON.stringify(payload)
       });
     } else {
-      // CREATE VIA API
       await fetch(`${API_BASE_URL}/trips`, {
         method: 'POST',
         headers: getAuthHeaders(),
@@ -392,6 +400,138 @@ async function handleConfirmDelete() {
   await loadData();
 }
 
+// ----------------------------------------------------
+// ACTIVITIES & BUDGET (US10 - US16)
+// ----------------------------------------------------
+async function openActivitiesModal(tripId) {
+  activeTripId = tripId;
+  const trip = itineraries.find(t => String(t.id) === String(tripId));
+  if (!trip) return;
+
+  document.getElementById('activities-modal-title').innerText = trip.title;
+  document.getElementById('activities-modal-dest').innerText = trip.destination || '';
+  document.getElementById('act-trip-id').value = tripId;
+  document.getElementById('activity-form').reset();
+  document.getElementById('filter-activity-type').value = '';
+
+  await loadTripActivities(tripId);
+  document.getElementById('activities-modal').classList.remove('hidden');
+}
+
+function closeActivitiesModal() {
+  activeTripId = null;
+  document.getElementById('activities-modal').classList.add('hidden');
+}
+
+async function loadTripActivities(tripId, typeFilter = '') {
+  try {
+    // 1. Fetch budget comparison (US16)
+    const budgetRes = await fetch(`${API_BASE_URL}/trips/${tripId}/budget`, {
+      headers: getAuthHeaders()
+    });
+    if (budgetRes.ok) {
+      const bData = await budgetRes.json();
+      document.getElementById('budget-initial').innerText = `$${bData.initial_budget.toLocaleString()}`;
+      document.getElementById('budget-total-spent').innerText = `$${bData.total_cost.toLocaleString()}`;
+      document.getElementById('budget-remaining').innerText = `$${bData.remaining_balance.toLocaleString()}`;
+
+      const warnEl = document.getElementById('budget-warning');
+      if (bData.is_over_budget) {
+        warnEl.classList.remove('hidden');
+      } else {
+        warnEl.classList.add('hidden');
+      }
+    }
+
+    // 2. Fetch activities list (with optional filter, US12)
+    const url = typeFilter
+      ? `${API_BASE_URL}/trips/${tripId}/activities?type=${encodeURIComponent(typeFilter)}`
+      : `${API_BASE_URL}/trips/${tripId}/activities`;
+
+    const actRes = await fetch(url, { headers: getAuthHeaders() });
+    const listEl = document.getElementById('activities-list');
+
+    if (actRes.ok) {
+      const activities = await actRes.json();
+      if (activities.length === 0) {
+        listEl.innerHTML = '<p class="text-xs text-gray-400 italic text-center py-4">No activities found.</p>';
+      } else {
+        listEl.innerHTML = activities.map(act => `
+          <div class="p-2 bg-gray-50 rounded border border-gray-200 text-xs flex items-start justify-between gap-2">
+            <div class="flex-1">
+              <div class="flex items-center space-x-2">
+                <span class="font-bold text-gray-900">${act.title}</span>
+                <span class="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
+                  ${act.type || 'Activity'}
+                </span>
+                <span class="font-semibold text-gray-700">$${Number(act.price).toLocaleString()}</span>
+                ${act.duration ? `<span class="text-gray-500 text-[11px]">${act.duration}h</span>` : ''}
+              </div>
+              ${act.location ? `<p class="text-[11px] text-gray-500 mt-0.5">📍 ${act.location}</p>` : ''}
+              ${act.notes ? `<p class="text-[11px] text-gray-600 mt-0.5 italic">${act.notes}</p>` : ''}
+            </div>
+            <button onclick="handleDeleteActivity(${act.id})" class="text-red-500 hover:text-red-700 p-1 rounded hover:bg-red-50" title="Delete activity">
+              <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+            </button>
+          </div>
+        `).join('');
+      }
+    }
+  } catch (error) {
+    console.error('Error loading activities:', error);
+  }
+  refreshIcons();
+}
+
+async function handleSaveActivity(e) {
+  e.preventDefault();
+  const tripId = document.getElementById('act-trip-id').value;
+  const payload = {
+    title: document.getElementById('act-title').value.trim(),
+    price: parseFloat(document.getElementById('act-price').value) || 0,
+    type: document.getElementById('act-type').value || null,
+    duration: document.getElementById('act-duration').value ? parseFloat(document.getElementById('act-duration').value) : null,
+    location: document.getElementById('act-location').value.trim() || null,
+    notes: document.getElementById('act-notes').value.trim() || null
+  };
+
+  try {
+    const res = await fetch(`${API_BASE_URL}/trips/${tripId}/activities`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(payload)
+    });
+    if (res.ok) {
+      document.getElementById('activity-form').reset();
+      document.getElementById('act-trip-id').value = tripId;
+      await loadTripActivities(tripId, document.getElementById('filter-activity-type').value);
+    } else {
+      const errData = await res.json();
+      alert(errData.detail || 'Failed to save activity');
+    }
+  } catch (error) {
+    console.error('Error saving activity:', error);
+  }
+}
+
+async function handleDeleteActivity(actId) {
+  if (!activeTripId) return;
+  try {
+    const res = await fetch(`${API_BASE_URL}/trips/${activeTripId}/activities/${actId}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders()
+    });
+    if (res.ok) {
+      await loadTripActivities(activeTripId, document.getElementById('filter-activity-type').value);
+    }
+  } catch (error) {
+    console.error('Error deleting activity:', error);
+  }
+}
+
+// ----------------------------------------------------
+// UTILS
+// ----------------------------------------------------
 function updateStats() {
   const totalTrips = itineraries ? itineraries.length : 0;
   let totalBudget = 0;

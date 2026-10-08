@@ -25,7 +25,7 @@ class UserResponse(BaseModel):
     created_at: Optional[datetime] = None
 
 # ----------------------------------------------------
-# TRIP SCHEMAS
+# TRIP SCHEMAS (US5 & US6)
 # ----------------------------------------------------
 class TripBase(BaseModel):
     model_config = ConfigDict(populate_by_name=True, from_attributes=True)
@@ -60,3 +60,50 @@ class TripResponse(TripBase):
     id: int
     created_at: Optional[datetime] = None
     user_id: Optional[int] = None
+
+# ----------------------------------------------------
+# ACTIVITY SCHEMAS (US10 - US15)
+# ----------------------------------------------------
+class ActivityCreate(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    title: str = Field(..., min_length=1, description="Activity title")
+    price: Optional[float] = Field(0.0, ge=0.0, description="Price must be non-negative (US11)")
+    type: Optional[str] = Field(None, description="Category or type of activity (US12)")
+    duration: Optional[float] = Field(None, gt=0, description="Duration must be positive (US13)")
+    location: Optional[str] = Field(None, description="Location of activity (US14)")
+    notes: Optional[str] = Field(None, max_length=1000, description="Notes up to 1000 characters (US15)")
+
+class ActivityPatch(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    title: Optional[str] = Field(None, min_length=1)
+    price: Optional[float] = Field(None, ge=0.0)
+    type: Optional[str] = None
+    duration: Optional[float] = Field(None, gt=0)
+    location: Optional[str] = None
+    notes: Optional[str] = Field(None, max_length=1000)
+
+class ActivityResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    trip_id: int
+    title: str
+    price: float
+    type: Optional[str] = None
+    duration: Optional[float] = None
+    location: Optional[str] = None
+    notes: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+# ----------------------------------------------------
+# BUDGET COMPARISON SCHEMA (US16)
+# ----------------------------------------------------
+class TripBudgetResponse(BaseModel):
+    trip_id: int
+    initial_budget: float
+    total_cost: float
+    remaining_balance: float
+    variance: float
+    is_over_budget: bool
