@@ -1,7 +1,32 @@
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, EmailStr, ConfigDict
 from typing import Optional
 from datetime import datetime
 
+# ----------------------------------------------------
+# AUTH SCHEMAS (US8 & US9)
+# ----------------------------------------------------
+class UserRegister(BaseModel):
+    email: EmailStr = Field(..., description="Valid email address")
+    password: str = Field(..., min_length=6, description="Password with minimum 6 characters")
+
+class UserLogin(BaseModel):
+    email: str
+    password: str
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+class UserResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    email: str
+    created_at: Optional[datetime] = None
+
+# ----------------------------------------------------
+# TRIP SCHEMAS
+# ----------------------------------------------------
 class TripBase(BaseModel):
     model_config = ConfigDict(populate_by_name=True, from_attributes=True)
 
@@ -34,3 +59,4 @@ class TripResponse(TripBase):
 
     id: int
     created_at: Optional[datetime] = None
+    user_id: Optional[int] = None

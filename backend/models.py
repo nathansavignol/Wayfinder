@@ -1,9 +1,20 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime
+from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey
+from sqlalchemy.orm import relationship
 from datetime import datetime
 try:
     from .database import Base
 except ImportError:
     from database import Base
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    email = Column(String, unique=True, index=True, nullable=False)
+    hashed_password = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    trips = relationship("Trip", back_populates="user", cascade="all, delete-orphan")
 
 class Trip(Base):
     __tablename__ = "trips"
@@ -18,3 +29,6 @@ class Trip(Base):
     image = Column(String, nullable=True)
     notes = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    user = relationship("User", back_populates="trips")

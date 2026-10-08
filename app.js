@@ -1,53 +1,191 @@
 // Wayfinder - Travel Itinerary Manager
-// Integrated with Python FastAPI Backend & SQLite Database
+// Integrated with Python FastAPI Backend, SQLite Database & User Authentication (US8 & US9)
 
 const API_BASE_URL = 'http://localhost:8000';
-const STORAGE_KEY = 'wayfinder_itineraries_v2';
+const TOKEN_KEY = 'wayfinder_jwt_token';
+const EMAIL_KEY = 'wayfinder_user_email';
 
 let itineraries = [];
 let pendingDeleteId = null;
+let currentAuthMode = 'login'; // 'login' or 'register'
 
 document.addEventListener('DOMContentLoaded', () => {
   setupEventListeners();
-  loadData();
+  updateAuthUI();
+  if (getAuthToken()) {
+    loadData();
+  } else {
+    renderDashboard();
+  }
 });
+
+function getAuthToken() {
+  return localStorage.getItem(TOKEN_KEY);
+}
+
+function getAuthHeaders() {
+  const token = getAuthToken();
+  const headers = { 'Content-Type': 'application/json' };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  return headers;
+}
+
+// ----------------------------------------------------
+// AUTH UI & STATE
+// ----------------------------------------------------
+function updateAuthUI() {
+  const token = getAuthToken();
+  const email = localStorage.getItem(EMAIL_KEY);
+  const loggedOutBox = document.getElementById('auth-logged-out');
+  const loggedInBox = document.getElementById('auth-logged-in');
+  const emailDisplay = document.getElementById('user-display-email');
+
+  if (token && email) {
+    loggedOutBox.classList.add('hidden');
+    loggedInBox.classList.remove('hidden');
+    emailDisplay.innerText = email;
+  } else {
+    loggedInBox.classList.add('hidden');
+    loggedOutBox.classList.remove('hidden');
+  }
+}
+
+function openAuthModal(mode = 'login') {
+  currentAuthMode = mode;
+  const modal = document.getElementById('auth-modal');
+  const title = document.getElementById('auth-modal-title');
+  const submitBtn = document.getElementById('auth-submit-btn');
+  const toggleText = document.getElementById('auth-toggle-text');
+  const toggleBtn = document.getElementById('auth-toggle-btn');
+  const errorMsg = document.getElementById('auth-error-msg');
+
+  errorMsg.classList.add('hidden');
+  errorMsg.innerText = '';
+  document.getElementById('auth-form').reset();
+
+  if (mode === 'register') {
+    title.innerText = 'Create Account';
+    submitBtn.innerText = 'Sign Up';
+    toggleText.innerText = 'Already have an account?';
+    toggleBtn.innerText = 'Log in';
+  } else {
+    title.innerText = 'Login';
+    submitBtn.innerText = 'Login';
+    toggleText.innerText = "Don't have an account?";
+    toggleBtn.innerText = 'Sign Up';
+  }
+
+  modal.classList.remove('hidden');
+}
+
+function closeAuthModal() {
+  document.getElementById('auth-modal').classList.add('hidden');
+}
+
+function handleLogout() {
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(EMAIL_KEY);
+  itineraries = [];
+  updateAuthUI();
+  renderDashboard();
+}
+
+async function handleAuthSubmit(e) {
+  e.preventDefault();
+  const email = document.getElementById('auth-email').value.trim();
+  const password = document.getElementById('auth-password').value;
+  const errorMsg = document.getElementById('auth-error-msg');
+
+  errorMsg.classList.add('hidden');
+  errorMsg.innerText = '';
+
+  try {
+    if (currentAuthMode === 'register') {
+      // US8: Register
+      const regRes = await fetch(`${API_BASE_URL}/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      });
+
+      if (!regRes.ok) {
+        const data = await regRes.json();
+        throw new Error(data.detail || 'Registration failed');
+      }
+
+      // Auto-login after successful registration
+      const loginRes = await fetch(`${API_BASE_URL}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      });
+      const loginData = await loginRes.json();
+      localStorage.setItem(TOKEN_KEY, loginData.access_token);
+      localStorage.setItem(EMAIL_KEY, email);
+    } else {
+      // US9: Login
+      const res = await fetch(`${API_BASE_URL}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.detail || 'Invalid email or password');
+      }
+
+      const data = await res.json();
+      localStorage.setItem(TOKEN_KEY, data.access_token);
+      localStorage.setItem(EMAIL_KEY, email);
+    }
+
+    closeAuthModal();
+    updateAuthUI();
+    await loadData();
+  } catch (err) {
+    errorMsg.innerText = err.message;
+    errorMsg.classList.remove('hidden');
+  }
+}
 
 // ----------------------------------------------------
 // DATA FETCHING & SYNCHRONIZATION WITH API
 // ----------------------------------------------------
 async function loadData() {
+  const token = getAuthToken();
+  if (!token) {
+    itineraries = [];
+    renderDashboard();
+    return;
+  }
+
   try {
-    const response = await fetch(`${API_BASE_URL}/trips`);
+    const response = await fetch(`${API_BASE_URL}/trips`, {
+      headers: getAuthHeaders()
+    });
+
+    if (response.status === 401) {
+      console.warn('Session expired or unauthorized');
+      handleLogout();
+      openAuthModal('login');
+      return;
+    }
+
     if (response.ok) {
       itineraries = await response.json();
     } else {
-      console.warn('API returned non-200, falling back to local cache');
-      loadFallbackData();
-    }
-  } catch (error) {
-    console.info('Backend API not reachable at http://localhost:8000, using local storage cache.');
-    loadFallbackData();
-  }
-  renderDashboard();
-  refreshIcons();
-}
-
-function loadFallbackData() {
-  const stored = localStorage.getItem(STORAGE_KEY);
-  if (stored) {
-    try {
-      itineraries = JSON.parse(stored);
-    } catch (e) {
       itineraries = [];
     }
-  } else {
+  } catch (error) {
+    console.warn('API not reachable:', error);
     itineraries = [];
   }
-}
 
-function syncLocalCache() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(itineraries));
-  updateStats();
+  renderDashboard();
+  refreshIcons();
 }
 
 function refreshIcons() {
@@ -57,9 +195,25 @@ function refreshIcons() {
 }
 
 function setupEventListeners() {
-  document.getElementById('btn-new-itinerary').addEventListener('click', () => openCreateModal());
+  document.getElementById('btn-new-itinerary').addEventListener('click', () => {
+    if (!getAuthToken()) {
+      openAuthModal('login');
+    } else {
+      openCreateModal();
+    }
+  });
+
   document.getElementById('itinerary-form').addEventListener('submit', handleSaveItinerary);
   document.getElementById('btn-confirm-delete').addEventListener('click', handleConfirmDelete);
+
+  // Auth Event Listeners
+  document.getElementById('btn-open-login').addEventListener('click', () => openAuthModal('login'));
+  document.getElementById('btn-open-register').addEventListener('click', () => openAuthModal('register'));
+  document.getElementById('btn-logout').addEventListener('click', handleLogout);
+  document.getElementById('auth-form').addEventListener('submit', handleAuthSubmit);
+  document.getElementById('auth-toggle-btn').addEventListener('click', () => {
+    openAuthModal(currentAuthMode === 'login' ? 'register' : 'login');
+  });
 }
 
 // ----------------------------------------------------
@@ -142,7 +296,7 @@ function renderDashboard() {
 }
 
 // ----------------------------------------------------
-// CRUD ACTIONS (CONNECTED TO API)
+// CRUD ACTIONS (CONNECTED TO API WITH JWT)
 // ----------------------------------------------------
 function openCreateModal() {
   document.getElementById('modal-title').innerText = 'New Trip';
@@ -191,35 +345,21 @@ async function handleSaveItinerary(e) {
   try {
     if (id) {
       // UPDATE VIA API
-      const response = await fetch(`${API_BASE_URL}/trips/${id}`, {
+      await fetch(`${API_BASE_URL}/trips/${id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify(payload)
       });
-      if (!response.ok) {
-        console.error('Failed to update trip via API');
-      }
     } else {
       // CREATE VIA API
-      const response = await fetch(`${API_BASE_URL}/trips`, {
+      await fetch(`${API_BASE_URL}/trips`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify(payload)
       });
-      if (!response.ok) {
-        console.error('Failed to create trip via API');
-      }
     }
   } catch (error) {
-    console.warn('API error during save, applying changes locally:', error);
-    // Local fallback update
-    if (id) {
-      const idx = itineraries.findIndex(t => String(t.id) === String(id));
-      if (idx !== -1) itineraries[idx] = { ...itineraries[idx], ...payload };
-    } else {
-      itineraries.unshift({ id: Date.now(), ...payload });
-    }
-    syncLocalCache();
+    console.error('API error saving trip:', error);
   }
 
   closeModal();
@@ -240,16 +380,12 @@ async function handleConfirmDelete() {
   if (!pendingDeleteId) return;
 
   try {
-    const response = await fetch(`${API_BASE_URL}/trips/${pendingDeleteId}`, {
-      method: 'DELETE'
+    await fetch(`${API_BASE_URL}/trips/${pendingDeleteId}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders()
     });
-    if (!response.ok) {
-      console.error('Failed to delete trip via API');
-    }
   } catch (error) {
-    console.warn('API error during delete, removing locally:', error);
-    itineraries = itineraries.filter(t => String(t.id) !== String(pendingDeleteId));
-    syncLocalCache();
+    console.error('API error deleting trip:', error);
   }
 
   closeDeleteModal();

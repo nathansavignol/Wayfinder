@@ -8,20 +8,28 @@ from typing import List
 
 try:
     from .database import engine, Base, get_db
-    from .models import Trip
-    from .schemas import TripCreate, TripUpdate, TripResponse
+    from .models import Trip, User
+    from .schemas import (
+        TripCreate, TripUpdate, TripResponse,
+        UserRegister, UserLogin, TokenResponse, UserResponse
+    )
+    from .auth import hash_password, verify_password, create_access_token, get_current_user
 except ImportError:
     from database import engine, Base, get_db
-    from models import Trip
-    from schemas import TripCreate, TripUpdate, TripResponse
+    from models import Trip, User
+    from schemas import (
+        TripCreate, TripUpdate, TripResponse,
+        UserRegister, UserLogin, TokenResponse, UserResponse
+    )
+    from auth import hash_password, verify_password, create_access_token, get_current_user
 
 # Initialize database schema
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
     title="Wayfinder API",
-    description="Backend REST API with SQLite database for Wayfinder travel itineraries",
-    version="1.0.0"
+    description="Backend REST API with SQLite database & Authentication for Wayfinder",
+    version="1.1.0"
 )
 
 # Enable CORS for frontend integration
@@ -33,7 +41,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Exception handler to return 400 Bad Request on schema/field validation errors (matches US5 Test 4 & US6 Test 2)
+# Return 400 Bad Request on schema/field validation errors (matches US5 Test 4, US6 Test 2, US8 Test 3)
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     return JSONResponse(
@@ -41,7 +49,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         content={"detail": "Bad Request: mandatory fields missing or invalid format", "errors": exc.errors()}
     )
 
-# Exception handler to return 500/503 when database operation fails (matches US6 Test 4)
+# Return 503 when database operation fails (matches US6 Test 4)
 @app.exception_handler(SQLAlchemyError)
 async def database_exception_handler(request: Request, exc: SQLAlchemyError):
     return JSONResponse(
@@ -54,17 +62,70 @@ def root():
     return {"message": "Wayfinder API is running", "docs": "/docs"}
 
 # ----------------------------------------------------
-# TRIPS CRUD ENDPOINTS (US5 & US6)
+# AUTHENTICATION ENDPOINTS (US8 & US9)
+# ----------------------------------------------------
+
+@app.post("/auth/register", status_code=status.HTTP_201_CREATED, tags=["Auth"])
+def register_user(user_data: UserRegister, db: Session = Depends(get_db)):
+    """Create a new user account with hashed password (US8 Test 1, 2, 3)."""
+    # Check if email already exists
+    existing = db.query(User).filter(User.email == user_data.email.lower()).first()
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="An account with this email already exists"
+        )
+
+    # Store user with hashed password
+    hashed = hash_password(user_data.password)
+    new_user = User(
+        email=user_data.email.lower(),
+        hashed_password=hashed
+    )
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+
+    return {
+        "id": new_user.id,
+        "email": new_user.email,
+        "message": "User registered successfully"
+    }
+
+@app.post("/auth/login", response_model=TokenResponse, tags=["Auth"])
+def login_user(login_data: UserLogin, db: Session = Depends(get_db)):
+    """Authenticate user and return JWT access token (US9 Test 1, 2)."""
+    user = db.query(User).filter(User.email == login_data.email.lower()).first()
+    if not user or not verify_password(login_data.password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password"
+        )
+
+    token = create_access_token(data={"sub": str(user.id), "email": user.email})
+    return {"access_token": token, "token_type": "bearer"}
+
+# ----------------------------------------------------
+# TRIPS CRUD ENDPOINTS (US5 & US6 - Protected by US9)
 # ----------------------------------------------------
 
 @app.get("/trips", response_model=List[TripResponse], tags=["Trips"])
-def get_trips(db: Session = Depends(get_db)):
-    """Retrieve all trips ordered by newest first."""
-    return db.query(Trip).order_by(Trip.id.desc()).all()
+def get_trips(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Retrieve all trips owned by the authenticated user (US9 Test 3)."""
+    return db.query(Trip).filter(
+        (Trip.user_id == current_user.id) | (Trip.user_id == None)
+    ).order_by(Trip.id.desc()).all()
 
 @app.post("/trips", response_model=TripResponse, status_code=status.HTTP_201_CREATED, tags=["Trips"])
-def create_trip(trip_data: TripCreate, db: Session = Depends(get_db)):
-    """Create a new trip in the database (US5 Test 1)."""
+def create_trip(
+    trip_data: TripCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Create a new trip linked to authenticated user (US5 Test 1)."""
     new_trip = Trip(
         title=trip_data.title,
         destination=trip_data.destination,
@@ -73,7 +134,8 @@ def create_trip(trip_data: TripCreate, db: Session = Depends(get_db)):
         budget=trip_data.budget or 0.0,
         status=trip_data.status or "planned",
         image=trip_data.image,
-        notes=trip_data.notes
+        notes=trip_data.notes,
+        user_id=current_user.id
     )
     db.add(new_trip)
     db.commit()
@@ -81,7 +143,11 @@ def create_trip(trip_data: TripCreate, db: Session = Depends(get_db)):
     return new_trip
 
 @app.get("/trips/{id}", response_model=TripResponse, tags=["Trips"])
-def get_trip_by_id(id: int, db: Session = Depends(get_db)):
+def get_trip_by_id(
+    id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     """Get single trip by ID (US5 Test 6 / US6 Test 1)."""
     trip = db.query(Trip).filter(Trip.id == id).first()
     if not trip:
@@ -92,7 +158,12 @@ def get_trip_by_id(id: int, db: Session = Depends(get_db)):
     return trip
 
 @app.put("/trips/{id}", response_model=TripResponse, tags=["Trips"])
-def update_trip(id: int, trip_data: TripUpdate, db: Session = Depends(get_db)):
+def update_trip(
+    id: int,
+    trip_data: TripUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     """Update an existing trip (US5 Test 2 / Test 5)."""
     trip = db.query(Trip).filter(Trip.id == id).first()
     if not trip:
@@ -110,7 +181,11 @@ def update_trip(id: int, trip_data: TripUpdate, db: Session = Depends(get_db)):
     return trip
 
 @app.delete("/trips/{id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Trips"])
-def delete_trip(id: int, db: Session = Depends(get_db)):
+def delete_trip(
+    id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     """Delete a trip from the database (US5 Test 3)."""
     trip = db.query(Trip).filter(Trip.id == id).first()
     if not trip:
