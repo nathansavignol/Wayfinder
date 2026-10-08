@@ -1,10 +1,10 @@
-# 🧭 Wayfinder — Travel Itinerary Manager
+# Wayfinder Travel Itinerary Manager
 
 A clean, minimalist application to create, edit, and suppress (delete) travel itineraries.
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 1. Open:
    ```
