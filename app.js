@@ -1,59 +1,51 @@
 // Wayfinder - Travel Itinerary Manager
+// Integrated with Python FastAPI Backend & SQLite Database
 
+const API_BASE_URL = 'http://localhost:8000';
 const STORAGE_KEY = 'wayfinder_itineraries_v2';
-
-// Seed sample itineraries
-const SAMPLE_ITINERARIES = [
-  {
-    id: 'trip-1',
-    title: 'Highlights of Japan',
-    destination: 'Tokyo & Kyoto, Japan',
-    startDate: '2026-10-10',
-    endDate: '2026-10-20',
-    budget: 2800,
-    status: 'planned',
-    image: 'https://images.unsplash.com/photo-1503899036084-c55cdd92da26?auto=format&fit=crop&w=600&q=80',
-    notes: 'JR Pass activated on arrival. Shinkansen between Tokyo and Kyoto. Hotel bookings in Shinjuku.'
-  },
-  {
-    id: 'trip-2',
-    title: 'Weekend in Rome',
-    destination: 'Rome, Italy',
-    startDate: '2026-07-05',
-    endDate: '2026-07-08',
-    budget: 650,
-    status: 'in-progress',
-    image: 'https://images.unsplash.com/photo-1533105079780-92b9be482077?auto=format&fit=crop&w=600&q=80',
-    notes: 'Visit the Colosseum and Vatican museums. Walking tour around the historic center.'
-  }
-];
 
 let itineraries = [];
 let pendingDeleteId = null;
 
 document.addEventListener('DOMContentLoaded', () => {
-  loadData();
   setupEventListeners();
-  renderDashboard();
-  refreshIcons();
+  loadData();
 });
 
-function loadData() {
+// ----------------------------------------------------
+// DATA FETCHING & SYNCHRONIZATION WITH API
+// ----------------------------------------------------
+async function loadData() {
+  try {
+    const response = await fetch(`${API_BASE_URL}/trips`);
+    if (response.ok) {
+      itineraries = await response.json();
+    } else {
+      console.warn('API returned non-200, falling back to local cache');
+      loadFallbackData();
+    }
+  } catch (error) {
+    console.info('Backend API not reachable at http://localhost:8000, using local storage cache.');
+    loadFallbackData();
+  }
+  renderDashboard();
+  refreshIcons();
+}
+
+function loadFallbackData() {
   const stored = localStorage.getItem(STORAGE_KEY);
   if (stored) {
     try {
       itineraries = JSON.parse(stored);
     } catch (e) {
-      console.error('Error loading data:', e);
-      itineraries = SAMPLE_ITINERARIES;
+      itineraries = [];
     }
   } else {
-    itineraries = SAMPLE_ITINERARIES;
-    saveData();
+    itineraries = [];
   }
 }
 
-function saveData() {
+function syncLocalCache() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(itineraries));
   updateStats();
 }
@@ -79,7 +71,7 @@ function renderDashboard() {
 
   updateStats();
 
-  if (itineraries.length === 0) {
+  if (!itineraries || itineraries.length === 0) {
     grid.innerHTML = '';
     emptyState.classList.remove('hidden');
     return;
@@ -93,12 +85,14 @@ function renderDashboard() {
       'completed': { label: 'Completed', badge: 'bg-gray-100 text-gray-700 border-gray-200' }
     };
     const status = statusLabels[trip.status] || statusLabels['planned'];
+    const startDate = trip.start_date || trip.startDate;
+    const endDate = trip.end_date || trip.endDate;
 
     return `
       <div class="bg-white rounded-lg border border-gray-200 overflow-hidden flex flex-col justify-between">
         ${trip.image ? `
           <div class="h-36 w-full bg-gray-100 overflow-hidden">
-            <img src="${trip.image}" alt="${trip.title}" class="w-full h-full object-cover">
+            <img src="${trip.image}" alt="${trip.title}" class="w-full h-full object-cover" onerror="this.parentElement.style.display='none'">
           </div>
         ` : ''}
 
@@ -115,12 +109,12 @@ function renderDashboard() {
 
             <h3 class="font-bold text-base text-gray-900 mt-2">${trip.title}</h3>
             <p class="text-xs text-gray-500 mt-0.5 flex items-center">
-              <i data-lucide="map-pin" class="w-3.5 h-3.5 mr-1 text-gray-400"></i> ${trip.destination}
+              <i data-lucide="map-pin" class="w-3.5 h-3.5 mr-1 text-gray-400"></i> ${trip.destination || 'No destination'}
             </p>
 
-            ${(trip.startDate || trip.endDate) ? `
+            ${(startDate || endDate) ? `
               <p class="text-xs text-gray-500 mt-1 flex items-center">
-                <i data-lucide="calendar" class="w-3.5 h-3.5 mr-1 text-gray-400"></i> ${formatDates(trip.startDate, trip.endDate)}
+                <i data-lucide="calendar" class="w-3.5 h-3.5 mr-1 text-gray-400"></i> ${formatDates(startDate, endDate)}
               </p>
             ` : ''}
 
@@ -148,7 +142,7 @@ function renderDashboard() {
 }
 
 // ----------------------------------------------------
-// CRUD ACTIONS
+// CRUD ACTIONS (CONNECTED TO API)
 // ----------------------------------------------------
 function openCreateModal() {
   document.getElementById('modal-title').innerText = 'New Trip';
@@ -159,15 +153,15 @@ function openCreateModal() {
 }
 
 function openEditModalById(id) {
-  const trip = itineraries.find(t => t.id === id);
+  const trip = itineraries.find(t => String(t.id) === String(id));
   if (!trip) return;
 
   document.getElementById('modal-title').innerText = 'Edit Trip';
   document.getElementById('form-id').value = trip.id;
   document.getElementById('form-title').value = trip.title;
-  document.getElementById('form-destination').value = trip.destination;
-  document.getElementById('form-start-date').value = trip.startDate || '';
-  document.getElementById('form-end-date').value = trip.endDate || '';
+  document.getElementById('form-destination').value = trip.destination || '';
+  document.getElementById('form-start-date').value = trip.start_date || trip.startDate || '';
+  document.getElementById('form-end-date').value = trip.end_date || trip.endDate || '';
   document.getElementById('form-budget').value = trip.budget || '';
   document.getElementById('form-status').value = trip.status || 'planned';
   document.getElementById('form-image').value = trip.image || '';
@@ -180,47 +174,56 @@ function closeModal() {
   document.getElementById('itinerary-modal').classList.add('hidden');
 }
 
-function handleSaveItinerary(e) {
+async function handleSaveItinerary(e) {
   e.preventDefault();
   const id = document.getElementById('form-id').value;
-  const title = document.getElementById('form-title').value.trim();
-  const destination = document.getElementById('form-destination').value.trim();
-  const startDate = document.getElementById('form-start-date').value;
-  const endDate = document.getElementById('form-end-date').value;
-  const budget = parseFloat(document.getElementById('form-budget').value) || 0;
-  const status = document.getElementById('form-status').value;
-  const image = document.getElementById('form-image').value.trim();
-  const notes = document.getElementById('form-notes').value.trim();
+  const payload = {
+    title: document.getElementById('form-title').value.trim(),
+    destination: document.getElementById('form-destination').value.trim(),
+    start_date: document.getElementById('form-start-date').value || null,
+    end_date: document.getElementById('form-end-date').value || null,
+    budget: parseFloat(document.getElementById('form-budget').value) || 0,
+    status: document.getElementById('form-status').value,
+    image: document.getElementById('form-image').value.trim() || null,
+    notes: document.getElementById('form-notes').value.trim() || null
+  };
 
-  if (id) {
-    const trip = itineraries.find(t => t.id === id);
-    if (trip) {
-      trip.title = title;
-      trip.destination = destination;
-      trip.startDate = startDate;
-      trip.endDate = endDate;
-      trip.budget = budget;
-      trip.status = status;
-      trip.image = image;
-      trip.notes = notes;
+  try {
+    if (id) {
+      // UPDATE VIA API
+      const response = await fetch(`${API_BASE_URL}/trips/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (!response.ok) {
+        console.error('Failed to update trip via API');
+      }
+    } else {
+      // CREATE VIA API
+      const response = await fetch(`${API_BASE_URL}/trips`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (!response.ok) {
+        console.error('Failed to create trip via API');
+      }
     }
-  } else {
-    itineraries.unshift({
-      id: 'trip-' + Date.now(),
-      title,
-      destination,
-      startDate,
-      endDate,
-      budget,
-      status,
-      image,
-      notes
-    });
+  } catch (error) {
+    console.warn('API error during save, applying changes locally:', error);
+    // Local fallback update
+    if (id) {
+      const idx = itineraries.findIndex(t => String(t.id) === String(id));
+      if (idx !== -1) itineraries[idx] = { ...itineraries[idx], ...payload };
+    } else {
+      itineraries.unshift({ id: Date.now(), ...payload });
+    }
+    syncLocalCache();
   }
 
-  saveData();
   closeModal();
-  renderDashboard();
+  await loadData();
 }
 
 function openDeleteModal(tripId) {
@@ -233,20 +236,34 @@ function closeDeleteModal() {
   document.getElementById('delete-modal').classList.add('hidden');
 }
 
-function handleConfirmDelete() {
+async function handleConfirmDelete() {
   if (!pendingDeleteId) return;
-  itineraries = itineraries.filter(t => t.id !== pendingDeleteId);
-  saveData();
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/trips/${pendingDeleteId}`, {
+      method: 'DELETE'
+    });
+    if (!response.ok) {
+      console.error('Failed to delete trip via API');
+    }
+  } catch (error) {
+    console.warn('API error during delete, removing locally:', error);
+    itineraries = itineraries.filter(t => String(t.id) !== String(pendingDeleteId));
+    syncLocalCache();
+  }
+
   closeDeleteModal();
-  renderDashboard();
+  await loadData();
 }
 
 function updateStats() {
-  const totalTrips = itineraries.length;
+  const totalTrips = itineraries ? itineraries.length : 0;
   let totalBudget = 0;
-  itineraries.forEach(trip => {
-    totalBudget += (Number(trip.budget) || 0);
-  });
+  if (itineraries) {
+    itineraries.forEach(trip => {
+      totalBudget += (Number(trip.budget) || 0);
+    });
+  }
 
   const elTrips = document.getElementById('stat-total-trips');
   const elBudg = document.getElementById('stat-total-budget');
