@@ -1,14 +1,28 @@
 # Wayfinder Travel Itinerary Manager
 
-A minimalist application to create, edit, and delete travel itineraries.
+A clean, minimalist application to create, edit, view, and delete travel itineraries, powered by a Python (FastAPI) REST backend and persistent SQLite database.
 
 ---
 
-## Quick Start
+## Running the Application
 
-1. Open: index.html
-2. Features:
-   - **Create Trips**: Title, destination, dates, budget, status, cover image, and notes.
-   - **Edit Trips**: Click `Edit` on any card to update its details.
-   - **Delete Trips**: Click `Delete` to remove an itinerary with confirmation.
-   - **Persistence**: Automatically saved locally in `localStorage`.
+### 1. Start the Backend API
+From the project root:
+```powershell
+python backend\run.py
+```
+* **API Server:** http://127.0.0.1:8000
+* **Interactive Swagger UI Documentation:** http://127.0.0.1:8000/docs
+
+### 2. Open the Frontend
+Double-click **`index.html`** or open it in your browser.
+The interface will automatically communicate with the backend API at `http://127.0.0.1:8000/trips`.
+
+---
+
+## Running Automated Acceptance Tests (US5 & US6)
+
+To execute the automated validation tests for API endpoints and database persistence:
+```powershell
+python backend\test_api.py
+```
