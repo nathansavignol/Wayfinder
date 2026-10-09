@@ -1,5 +1,12 @@
 // Wayfinder - Travel Itinerary Manager
-
+import {
+    LeafletMap,
+    TileLayer,
+    Marker,
+    Circle,
+    Polygon,
+    Popup
+} from 'leaflet';
 const STORAGE_KEY = 'wayfinder_itineraries_v2';
 
 // Seed sample itineraries
@@ -30,13 +37,50 @@ const SAMPLE_ITINERARIES = [
 
 let itineraries = [];
 let pendingDeleteId = null;
-
+let map;
 document.addEventListener('DOMContentLoaded', () => {
   loadData();
   setupEventListeners();
   renderDashboard();
   refreshIcons();
+  initializeMap();
 });
+
+function initializeMap() {
+  map = new LeafletMap('map')
+    .setView([56.1829, 15.59], 20);
+
+  new TileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(map);
+  const marker = new Marker([56.1829, 15.59]).addTo(map);
+  const marker2 = new Marker([56.182999, 15.59123]).addTo(map);
+  
+}
+async function geocodeDestination(destination) {
+    const url =
+        `https://nominatim.openstreetmap.org/search?` +
+        `q=${encodeURIComponent(destination)}` +
+        `&format=jsonv2&limit=1`;
+
+    const response = await fetch(url);
+
+    if (!response.ok) {
+        throw new Error('Nominatim request failed');
+    }
+
+    const results = await response.json();
+
+    if (results.length === 0) {
+        return null;
+    }
+
+    return {
+        latitude: Number(results[0].lat),
+        longitude: Number(results[0].lon)
+    };
+}
 
 function loadData() {
   const stored = localStorage.getItem(STORAGE_KEY);
@@ -180,43 +224,63 @@ function closeModal() {
   document.getElementById('itinerary-modal').classList.add('hidden');
 }
 
-function handleSaveItinerary(e) {
+async function handleSaveItinerary(e) {
   e.preventDefault();
   const id = document.getElementById('form-id').value;
   const title = document.getElementById('form-title').value.trim();
   const destination = document.getElementById('form-destination').value.trim();
+  const coordinates = await geocodeDestination(destination);
+  if (!coordinates) {
+    alert('Could not find that destination.');
+    return;
+  }
   const startDate = document.getElementById('form-start-date').value;
   const endDate = document.getElementById('form-end-date').value;
   const budget = parseFloat(document.getElementById('form-budget').value) || 0;
   const status = document.getElementById('form-status').value;
   const image = document.getElementById('form-image').value.trim();
   const notes = document.getElementById('form-notes').value.trim();
+  
 
   if (id) {
     const trip = itineraries.find(t => t.id === id);
     if (trip) {
       trip.title = title;
       trip.destination = destination;
+      trip.latitude = coordinates.latitude;
+      trip.longitude = coordinates.longitude;
       trip.startDate = startDate;
       trip.endDate = endDate;
       trip.budget = budget;
       trip.status = status;
       trip.image = image;
       trip.notes = notes;
+      new Marker([trip.latitude, trip.longitude])
+                .addTo(map)
+                .bindPopup(trip.destination);
     }
   } else {
-    itineraries.unshift({
-      id: 'trip-' + Date.now(),
-      title,
-      destination,
-      startDate,
-      endDate,
-      budget,
-      status,
-      image,
-      notes
-    });
-  }
+    const newTrip = {
+        id: 'trip-' + Date.now(),
+        title,
+        destination,
+        latitude: coordinates.latitude,
+        longitude: coordinates.longitude,
+        startDate,
+        endDate,
+        budget,
+        status,
+        image,
+        notes
+    };
+    itineraries.unshift(newTrip);
+    new Marker([newTrip.latitude, newTrip.longitude])
+        .addTo(map)
+        .bindPopup(newTrip.destination);
+
+    };
+  
+  
 
   saveData();
   closeModal();
@@ -261,3 +325,8 @@ function formatDates(start, end) {
   if (!start && end) return `Until ${end}`;
   return `${start} → ${end}`;
 }
+window.openCreateModal = openCreateModal;
+window.openEditModalById = openEditModalById;
+window.openDeleteModal = openDeleteModal;
+window.closeModal = closeModal;
+window.closeDeleteModal = closeDeleteModal;

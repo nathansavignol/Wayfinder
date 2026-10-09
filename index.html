@@ -9,6 +9,19 @@
   <!-- Lucide Icons -->
   <script src="https://unpkg.com/lucide@latest"></script>
   <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@2.0.0-alpha.1/dist/leaflet.css"
+     integrity="sha256-P+hWJNlpL+GBSRYC7cdsDbQH91URmpDeOzLp7DbFRtE="
+     crossorigin=""/>
+   <script type="importmap">
+ {
+     "imports": {
+         "leaflet": "https://cdn.jsdelivr.net/npm/leaflet@2.0.0-alpha.1/dist/leaflet.js"
+     },
+     "integrity": {
+         "https://cdn.jsdelivr.net/npm/leaflet@2.0.0-alpha.1/dist/leaflet.js": "sha256-gj5JhNAaMi6LCs+jVFOk8sXDe1sWSS2Zlc87m+trLiQ="
+     }
+ }
+ </script>
 </head>
 <body class="bg-gray-50 text-gray-900 min-h-screen flex flex-col font-sans">
 
@@ -30,7 +43,7 @@
 
   <!-- Main Content -->
   <main class="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-6 space-y-6">
-
+  <div id="map" class="h-[500px] w-full"></div>
     <!-- Overview Bar -->
     <div class="bg-white p-5 rounded-lg border border-gray-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
       <div>
@@ -67,7 +80,7 @@
   </main>
 
   <!-- MODAL: Create / Edit Trip -->
-  <div id="itinerary-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/50 hidden">
+  <div id="itinerary-modal" class="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-gray-900/50 hidden">
     <div class="bg-white rounded-lg max-w-md w-full p-5 shadow-lg border border-gray-200">
       <div class="flex items-center justify-between pb-3 border-b border-gray-200">
         <h3 id="modal-title" class="text-base font-bold text-gray-900">New Trip</h3>
@@ -141,7 +154,7 @@
   </div>
 
   <!-- MODAL: Confirm Delete -->
-  <div id="delete-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/50 hidden">
+  <div id="delete-modal" class="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-gray-900/50 hidden">
     <div class="bg-white rounded-lg max-w-sm w-full p-5 border border-gray-200 text-center space-y-3">
       <h3 class="text-base font-bold text-gray-900">Delete Itinerary?</h3>
       <p class="text-xs text-gray-500">This action will permanently remove this itinerary from your list.</p>
@@ -152,6 +165,7 @@
     </div>
   </div>
 
-  <script src="app.js"></script>
+  <script type="module" src="app.js"></script>
 </body>
+
 </html>
